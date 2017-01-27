@@ -50,7 +50,7 @@ public class MilightBridgeDiscovery extends AbstractDiscoveryService implements 
     private void startDiscoveryService() {
         if (receiveThread == null) {
             try {
-                receiveThread = new MilightDiscover(broadcast, this, 50, 2000 / 50);
+                receiveThread = new MilightDiscover(broadcast, this, 200, 2000 / 200);
             } catch (SocketException e) {
                 logger.error("Opening a socket for the milight discovery service failed. " + e.getLocalizedMessage());
                 return;
@@ -91,13 +91,14 @@ public class MilightBridgeDiscovery extends AbstractDiscoveryService implements 
     }
 
     @Override
-    public void bridgeDetected(InetAddress addr, String id) {
-        logger.debug("Milight bridge found " + addr.getHostName() + " " + id);
+    public void bridgeDetected(InetAddress addr, String id, int version) {
         ThingUID thingUID = new ThingUID(MilightBindingConstants.BINDING_ID, "bridge", id);
-        String label = "Milight Bridge " + id;
+        String label = (version == 6 ? "Milight iBox " : "Milight Bridge ") + id;
         Map<String, Object> properties = new TreeMap<>();
-        properties.put((String) MilightBindingConstants.CONFIG_ID, id);
-        properties.put((String) MilightBindingConstants.CONFIG_HOST_NAME, addr.getHostAddress());
+        properties.put(MilightBindingConstants.CONFIG_ID, id);
+        properties.put(MilightBindingConstants.CONFIG_HOST_NAME, addr.getHostAddress());
+        properties.put(MilightBindingConstants.CONFIG_PROTOCOL_VERSION, version);
+
         DiscoveryResult discoveryResult = DiscoveryResultBuilder.create(thingUID).withLabel(label)
                 .withProperties(properties).build();
         thingDiscovered(discoveryResult);
@@ -122,4 +123,3 @@ public class MilightBridgeDiscovery extends AbstractDiscoveryService implements 
 
     }
 }
-

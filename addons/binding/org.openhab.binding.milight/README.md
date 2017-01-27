@@ -4,15 +4,14 @@ The openHAB2 Milight binding allows to send commands to multiple Milight bridges
 [![openHAB Milight](http://img.youtube.com/vi/zNe9AkQbfmc/0.jpg)](http://www.youtube.com/watch?v=zNe9AkQbfmc)
 
 ## Supported Things
-The Milight Binding supports White, and RGB(W) bulbs.
+The Milight Binding supports White, RGB, RGBW and RGBWW (iBox) bulbs.
 
 ## Discovery
 Version 3+ bridges can be discovered by triggering a search in openHAB's inbox. Found bridges
 will show up an can easily be added as things.
-After a bridge has been added, all possible bridge supported devices will appear
-as new things. Unfortunatelly milight leds are only able to receive so there is
-no real auto detection for single milight leds but only for the briges possible.
-Add the leds you actually configured and hide the rest of the detected things.
+Unfortunately milight bulbs have no back channel and can not report their presence, therefore
+all possible bulbs are listed as new things after a bridge has been added.
+Add the bulbs you actually configured and hide the rest of the detected things.
 
 ## Binding Configuration
 When manually adding an older bridge Type (3-), you have to add configuration information for
@@ -22,45 +21,74 @@ the bridge IP-Address and the listening port.
 Besides adding bridges through Paper-UI, you can also add them manually in your Thing
 configuration file.
 
-    Bridge milight:bridge:ACCF23A6C0B4 [ ADDR="192.168.0.70", PORT=8899 ]
+    Bridge milight:bridge:ACCF23A6C0B4 [ ADDR="192.168.0.70", PORT=8899 ] {
     Thing whiteLed 0
-    Thing whiteLed 1
-    Thing rgbLed 5
-    Thing rgbLed 8
-    Thing rgbLed 9
-    Thing rgbLed 10
+    Thing rgbwwLed 4
+    Thing rgbLed 1
     }
 
 The Thing configuration for the bridge uses the following syntax
 Bridge milight:bridge:<mac address of bridge> [ ADDR="<IP-Address of bridge>", PORT=<listening port> ]
 
 The Thing configuration for the bulbs uses the following syntax:
-[Thing] <type of bulb> <group number>
+[Thing] <type of bulb> <zone>
 
 The following bulb types are valid for configuration:
-whiteLed, rgbLed
 
-The group number corresponds to the bulbs/channels on your bridge, where 0 reflects all white bulbs,
-1-4 white bulb channels and 5 all rgb bulbs.
+ * rgbv2Led: The very first available bulb. Not very common anymore.
+ * whiteLed: The white bulbs (with cold/warm white) used with v3-v5 bridges.
+ * rgbLed: The rgb+white bulbs (with cold/warm white) used with v3-v5 bridges. About 4080 colors (255 colors * 16 brightness steps).
+ * rgbiboxLed: The iBox bridge integrated color bulb without a dedicated white channel.
+ * rgbwLed: The 2016/2017 color bulb without saturation support. About 16320 (255*64) colors.
+ * rgbwwLed: The 2016/2017 color bulb with saturation support. About 1.044.480 (255*64*64) different color shades.
+
+The zone number is either 0 for meaning all bulbs of the same type or
+a valid zone number (1-4 with bridges up to and including version 6).
+Future bridges may support more zones (up to 255).
 
 ## Features
 For white bulbs these channels are supported:
 
-    ledbrightness       controls the brightness of your bulbs
-    colorTemperature    changes from cold white to warm white and vice versa
-    nightMode           dimms your bulbs to a very low level to use them as a night light
+    ledbrightness       Controls the brightness of your bulbs
+    colorTemperature    Changes from cold white to warm white and vice versa
+    nightMode           Dims your bulbs to a very low level to use them as a night light
 
-For rgbw bulbs these channels are supported:
+For rgbv2Led bulbs these channels are supported:
 
-    ledbrightness       controls the brightness of your bulbs
-    ledcolor            changes the color and brightness of your rgb bulbs
-    discomode           changes the discoMode for rgb bulbs
-    discospeed          changes the speed of your chosen discoMode
+    ledbrightness       Controls the brightness of your bulbs
+    ledcolor            Changes the color and brightness of your rgb bulbs when bound to a colorpicker
+                        or just the brightness if bound to a Dimmer or controls On/Off if bound to a switch.
+
+For rgbLed bulbs these channels are supported:
+
+    nightMode           Dims your bulbs to a very low level to use them as a night light
+    ledwhitemode        Disable all color (saturation is 0)
+    ledbrightness       Controls the brightness of your bulbs
+    ledcolor            Changes the color and brightness of your rgb bulbs when bound to a colorpicker
+                        or just the brightness if bound to a Dimmer or controls On/Off if bound to a switch.
+    animation_mode_relative   Changes the animation mode. Use an IncreaseDecrease type of widget.
+    animation_speed     Changes the speed of your chosen animation mode
+
+For rgbwLed/rgbwwLed bulbs these channels are supported:
+
+    nightMode           Dims your bulbs to a very low level to use them as a night light
+    ledwhitemode        Disable all color (saturation is 0)
+    ledbrightness       Controls the brightness of your bulbs
+    ledsaturation       Controls the saturation of your bulbs (not for rgbwLed!)
+    colorTemperature    Changes from cold white to warm white and vice versa (not for rgbwLed!)
+    ledcolor            Changes the color and brightness of your rgb bulbs when bound to a colorpicker
+                        or just the brightness if bound to a Dimmer or controls On/Off if bound to a switch.
+    animation_mode      Changes the animation mode. Chose between animation mode 1 to 9.
+    animation_mode_relative   Changes the animation mode. Use an IncreaseDecrease type of widget.
+    animation_speed     Changes the speed of your chosen animation mode
+    ledlink             Sync bulb to this zone within 3 seconds of light bulb socket power on
+    ledunlink           Clear bulb from this zone within 3 seconds of light bulb socket power on
 
 [(See the API)](http://www.limitlessled.com/dev/). 
 
 Limitations:
-The rgb bulbs do not support changing their saturation, so the colorpicker will only set the hue and brightness of it.
+
+* Only the rgbww bulbs support changing their saturation, for rgbv2Led/rgbw the colorpicker will only set the hue and brightness and change to whitemode if the saturation is under a given threshold.
 
 ## Example
 
@@ -76,17 +104,20 @@ The rgb bulbs do not support changing their saturation, so the colorpicker will 
 	# You have to link the items to the channels of your prefered group e.g. in paperui after you've saved
 	# your items file.
 	
-	# The command types discomode and discoSpeed should be configured as pushbuttons as they only support INCREASE and DECREASE commands:
+	# The command types animation_mode_relative and animation_speed should be configured as pushbuttons as they only support INCREASE and DECREASE commands:
 
-    Dimmer DiscoMode		{channel="milight:rgbLed:ACCF23A6C0B4:5:discoMode"}
-    Dimmer DiscoSpeed		{channel="milight:rgbLed:ACCF23A6C0B4:5:discoSpeed"}
+    Dimmer AnimationMode		{channel="milight:rgbLed:ACCF23A6C0B4:5:animation_mode_relative"}
+    Dimmer AnimationSpeed	{channel="milight:rgbLed:ACCF23A6C0B4:5:animation_speed"}
+
+    # Animation Mode for RGBWW bulbs is different, it allows to pick a mode directly.
+
+    Switch AnimationModeRgbWW {channel="milight:rgbwwLed:ACCF23A6C0B4:5:animation_mode"}
 
 	.sitemap
 
-    Switch item=DiscoMode mappings=[DECREASE='-', INCREASE='+']
-    Switch item=DiscoSpeed mappings=[DECREASE='-', INCREASE='+']
+    Switch item=AnimationMode mappings=[DECREASE='-', INCREASE='+']
+    Switch item=AnimationSpeed mappings=[DECREASE='-', INCREASE='+']
 
-	# Disco Mode for RGBW bulbs can only be stepped in one direction, so please use INCREASE command only for those.
 
 
 ## Example for Scenes
@@ -133,8 +164,4 @@ The rgb bulbs do not support changing their saturation, so the colorpicker will 
 	    sendCommand(Light_scene_ColorSelect, new HSBType(new DecimalType(300),new PercentType(100),new PercentType(100)))
     }
     end
-  
-## Authors
- * David Gräff <david.graeff@tu-dortmund.de>, 2016
- * Hans-Joerg Merk
- * Kai Kreuzer
+

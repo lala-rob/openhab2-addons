@@ -23,25 +23,27 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Milight bridges can be discovered by sending specially formated UDP packets.
- * This class sends UDP packets on port PORT_SEND_DISCOVER up to three times in a row
+ * Milight bridges v3/v4/v5 and v6 can be discovered by sending specially formated UDP packets.
+ * This class sends UDP packets on port PORT_DISCOVER up to three times in a row
  * and listens for the response and will call discoverResult.bridgeDetected() eventually.
  *
- * @author David Graeff - Initial contribution
+ * @author David Graeff <david.graeff@web.de>
  */
 public class MilightDiscover extends Thread {
     /**
      * Result callback interface.
      */
     public interface DiscoverResult {
-        void bridgeDetected(InetAddress addr, String id);
+        void bridgeDetected(InetAddress addr, String id, int version);
 
         void noBridgeDetected();
     }
 
     ///// Network
-    private byte[] discoverbuffer = "Link_Wi-Fi".getBytes();
-    final private DatagramPacket discoverPacket;
+    private byte[] discoverbuffer_v3 = "Link_Wi-Fi".getBytes();
+    private byte[] discoverbuffer_v6 = "HF-A11ASSISTHREAD".getBytes();
+    final private DatagramPacket discoverPacket_v3;
+    final private DatagramPacket discoverPacket_v6;
     private boolean willbeclosed = false;
     private DatagramSocket datagramSocket;
     private byte[] buffer = new byte[1024];
@@ -60,9 +62,11 @@ public class MilightDiscover extends Thread {
     public MilightDiscover(InetAddress broadcast, DiscoverResult discoverResult, int resendTimeoutInMillis,
             int resendAttempts) throws SocketException {
         this.resendAttempts = resendAttempts;
-        this.resendTimeoutInMillis = resendTimeoutInMillis;
-        discoverPacket = new DatagramPacket(discoverbuffer, discoverbuffer.length, broadcast,
-                MilightBindingConstants.PORT_SEND_DISCOVER);
+        this.resendTimeoutInMillis = Math.min(resendTimeoutInMillis, 200);
+        discoverPacket_v3 = new DatagramPacket(discoverbuffer_v3, discoverbuffer_v3.length, broadcast,
+                MilightBindingConstants.PORT_DISCOVER);
+        discoverPacket_v6 = new DatagramPacket(discoverbuffer_v6, discoverbuffer_v6.length, broadcast,
+                MilightBindingConstants.PORT_DISCOVER);
         datagramSocket = new DatagramSocket(null);
         datagramSocket.setBroadcast(true);
         datagramSocket.bind(null);
@@ -98,7 +102,8 @@ public class MilightDiscover extends Thread {
                     discoverResult.noBridgeDetected();
                     return;
                 }
-                datagramSocket.send(discoverPacket);
+                datagramSocket.send(discoverPacket_v3);
+                datagramSocket.send(discoverPacket_v6);
                 logger.debug("Sent discovery packet");
             } catch (Exception e) {
                 logger.error("Sending a discovery packet failed. " + e.getLocalizedMessage());
@@ -138,6 +143,7 @@ public class MilightDiscover extends Thread {
             // Now loop forever, waiting to receive packets and printing them.
             while (!willbeclosed) {
                 datagramSocket.receive(packet);
+                // example: 10.1.1.27,ACCF23F57AD4,HF-LPB100
                 String[] msg = new String(buffer).split(",");
                 if (msg.length >= 2 && msg[1].length() == 12) {
                     // Stop resend timer if we got a packet.
@@ -145,7 +151,9 @@ public class MilightDiscover extends Thread {
                         resendTimer.cancel(true);
                         resendTimer = null;
                     }
-                    discoverResult.bridgeDetected(((InetSocketAddress) packet.getSocketAddress()).getAddress(), msg[1]);
+                    int version = msg.length >= 3 && msg[2].length() > 0 ? 6 : 3;
+                    discoverResult.bridgeDetected(((InetSocketAddress) packet.getSocketAddress()).getAddress(), msg[1],
+                            version);
                 } else {
                     logger.error("Unexpected data received " + msg[0]);
                 }

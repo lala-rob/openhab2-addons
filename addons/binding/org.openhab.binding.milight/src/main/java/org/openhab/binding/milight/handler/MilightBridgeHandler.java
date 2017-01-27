@@ -25,9 +25,10 @@ import org.eclipse.smarthome.core.thing.binding.BaseBridgeHandler;
 import org.eclipse.smarthome.core.types.Command;
 import org.openhab.binding.milight.MilightBindingConstants;
 import org.openhab.binding.milight.internal.discovery.ThingDiscoveryService;
-import org.openhab.binding.milight.internal.protocol.MilightCommunication;
 import org.openhab.binding.milight.internal.protocol.MilightDiscover;
 import org.openhab.binding.milight.internal.protocol.MilightDiscover.DiscoverResult;
+import org.openhab.binding.milight.internal.protocol.MilightV6SessionManager;
+import org.openhab.binding.milight.internal.protocol.QueuedSend;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,11 +41,14 @@ import org.slf4j.LoggerFactory;
 public class MilightBridgeHandler extends BaseBridgeHandler implements DiscoverResult {
     private Logger logger = LoggerFactory.getLogger(MilightBridgeHandler.class);
     private MilightDiscover discover;
-    private MilightCommunication com;
+    private QueuedSend com;
+    private MilightV6SessionManager session;
     private ScheduledFuture<?> discoverTimer;
-    private int refrehInterval;
+    private int refrehIntervalSec;
     private String bridgeid;
+    private int bridgeversion;
     private ThingDiscoveryService thingDiscoveryService;
+    private long last_keep_alive = 0;
 
     public MilightBridgeHandler(Bridge bridge) {
         super(bridge);
@@ -74,24 +78,50 @@ public class MilightBridgeHandler extends BaseBridgeHandler implements DiscoverR
 
         // Create a new communication object if the user changed the bridge ID configuration.
         String id_config = (String) thing.getConfiguration().get(MilightBindingConstants.CONFIG_ID);
-        if (id_config != null && !id_config.equals(com.getBridgeId())) {
+        if (id_config != null && !id_config.equals(bridgeid)) {
             reconnect = true;
         }
 
         // Create a new communication object if the user changed the port configuration.
-        BigDecimal port_config = (BigDecimal) thing.getConfiguration().get(MilightBindingConstants.CONFIG_PORT);
+        BigDecimal port_config = (BigDecimal) thing.getConfiguration().get(MilightBindingConstants.CONFIG_CUSTOM_PORT);
         if (port_config != null && port_config.intValue() > 0 && port_config.intValue() <= 65000
                 && port_config.intValue() != com.getPort()) {
             reconnect = true;
+        }
+
+        BigDecimal protocol_version = (BigDecimal) thing.getConfiguration()
+                .get(MilightBindingConstants.CONFIG_PROTOCOL_VERSION);
+        if (protocol_version != null && protocol_version.intValue() != bridgeversion) {
+            bridgeversion = protocol_version.intValue();
+            reconnect = true;
+        }
+
+        BigDecimal refresh_time = (BigDecimal) thing.getConfiguration().get(MilightBindingConstants.CONFIG_REFRESH_SEC);
+        if (refresh_time != null && refresh_time.intValue() != refrehIntervalSec) {
+            setupRefreshTimer();
         }
 
         if (reconnect) {
             createCommunicationObject();
         }
 
-        BigDecimal interval_config = (BigDecimal) thing.getConfiguration().get(MilightBindingConstants.CONFIG_REFRESH);
-        if (interval_config != null && interval_config.intValue() != refrehInterval) {
-            setupRefreshTimer();
+        BigDecimal pw_byte1 = (BigDecimal) thing.getConfiguration().get(MilightBindingConstants.CONFIG_PASSWORD_BYTE_1);
+        BigDecimal pw_byte2 = (BigDecimal) thing.getConfiguration().get(MilightBindingConstants.CONFIG_PASSWORD_BYTE_2);
+        if (pw_byte1 != null && pw_byte2 != null && pw_byte1.intValue() >= 0 && pw_byte1.intValue() <= 255
+                && pw_byte2.intValue() >= 0 && pw_byte2.intValue() <= 255 && session != null) {
+            session.setPasswordBytes((byte) pw_byte1.intValue(), (byte) pw_byte2.intValue());
+        }
+
+        BigDecimal repeat_command = (BigDecimal) thing.getConfiguration().get(MilightBindingConstants.CONFIG_REPEAT);
+        if (repeat_command != null && repeat_command.intValue() > 1 && repeat_command.intValue() <= 5) {
+            com.setRepeatCommands(repeat_command.intValue());
+        }
+
+        BigDecimal wait_between_commands = (BigDecimal) thing.getConfiguration()
+                .get(MilightBindingConstants.CONFIG_WAIT_BETWEEN_COMMANDS);
+        if (wait_between_commands != null && wait_between_commands.intValue() > 1
+                && wait_between_commands.intValue() <= 200) {
+            com.setDelayBetweenCommands(wait_between_commands.intValue());
         }
     }
 
@@ -129,7 +159,7 @@ public class MilightBridgeHandler extends BaseBridgeHandler implements DiscoverR
         if (bridgeid == null || bridgeid.length() != 12) {
             bridgeid = null; // for the case length() != 12
             logger.warn("BridgeID not known. Version 2 fallback behaviour activated, no periodical refresh available!");
-            bridgeDetected(addr, "");
+            bridgeDetected(addr, "", 2);
             return;
         }
 
@@ -162,13 +192,13 @@ public class MilightBridgeHandler extends BaseBridgeHandler implements DiscoverR
             discoverTimer.cancel(true);
         }
 
-        BigDecimal interval_config = (BigDecimal) thing.getConfiguration().get(MilightBindingConstants.CONFIG_REFRESH);
-        if (interval_config == null || interval_config.intValue() == 0) {
-            refrehInterval = 0;
+        BigDecimal refresh_sec = (BigDecimal) thing.getConfiguration().get(MilightBindingConstants.CONFIG_REFRESH_SEC);
+        if (refresh_sec == null || refresh_sec.intValue() == 0) {
+            refrehIntervalSec = 0;
             return;
         }
 
-        refrehInterval = interval_config.intValue();
+        refrehIntervalSec = refresh_sec.intValue();
 
         // This timer will do the state update periodically.
         discoverTimer = scheduler.scheduleAtFixedRate(new Runnable() {
@@ -176,7 +206,7 @@ public class MilightBridgeHandler extends BaseBridgeHandler implements DiscoverR
             public void run() {
                 discover.sendDiscover(scheduler);
             }
-        }, refrehInterval, refrehInterval, TimeUnit.MINUTES);
+        }, refrehIntervalSec, refrehIntervalSec, TimeUnit.SECONDS);
     }
 
     @Override
@@ -184,63 +214,156 @@ public class MilightBridgeHandler extends BaseBridgeHandler implements DiscoverR
         if (discover != null) {
             discover.stopReceiving();
         }
+        if (com != null) {
+            com.dispose();
+        }
     }
 
     /**
      * @return Return the protocol communication object. This may be null
      *         if the bridge is offline.
      */
-    public MilightCommunication getCommunication() {
+    public QueuedSend getCommunication() {
         return com;
     }
 
+    public MilightV6SessionManager getSessionManager() {
+        return session;
+    }
+
     @Override
-    public void bridgeDetected(InetAddress addr, String id) {
-        BigDecimal port_config = (BigDecimal) thing.getConfiguration().get(MilightBindingConstants.CONFIG_PORT);
-        if (port_config == null || port_config.intValue() < 0 || port_config.intValue() > 65000) {
+    public void bridgeDetected(InetAddress addr, String id, int version) {
+        if (com != null && bridgeid != null && bridgeid.equals(id)) {
+            // throttle to 1sec
+            if (last_keep_alive + 1000 < System.currentTimeMillis()) {
+                last_keep_alive = System.currentTimeMillis();
+                if (session != null) {
+                    session.keep_alive();
+                    updateProperty(MilightBindingConstants.PROPERTY_SESSIONID, session.getSession());
+                }
+            }
+            return;
+        }
+
+        this.bridgeid = id;
+
+        BigDecimal port_config = (BigDecimal) thing.getConfiguration().get(MilightBindingConstants.CONFIG_CUSTOM_PORT);
+        if (port_config != null && (port_config.intValue() < 0 || port_config.intValue() > 65000)) {
             updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.CONFIGURATION_ERROR, "No valid port set!");
             return;
         }
 
+        int port;
+        if (port_config != null) {
+            port = port_config.intValue();
+        } else if (version == 2) {
+            port = MilightBindingConstants.PORT_VER2;
+        } else if (version == 3) {
+            port = MilightBindingConstants.PORT_VER3;
+        } else if (version == 6) {
+            port = MilightBindingConstants.PORT_VER6;
+        } else {
+            updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.CONFIGURATION_ERROR, "Protocol version unknown");
+            return;
+        }
+
+        if (com != null) {
+            com.dispose();
+            com = null;
+        }
+
         try {
-            com = new MilightCommunication(addr, port_config.intValue(), id);
+            com = new QueuedSend(addr, port);
         } catch (SocketException e) {
             updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.CONFIGURATION_ERROR, e.getLocalizedMessage());
             return;
         }
 
+        updateProperty(MilightBindingConstants.PROPERTY_SESSIONID, String.valueOf(version));
+
         // A bridge may be connected/paired to white/rgbw/rgb bulbs. Unfortunately the bridge does
         // not know which bulbs are present and the bulbs do not have a bidirectional communication.
         // Therefore we present the user all possible bulbs
         // (4 groups each for white/rgbw and 1 for the obsolete rgb bulb ).
-        thingDiscoveryService.addDevice(
-                new ThingUID(MilightBindingConstants.WHITE_THING_TYPE, this.getThing().getUID(), "0"),
-                "White group all");
-        thingDiscoveryService.addDevice(
-                new ThingUID(MilightBindingConstants.WHITE_THING_TYPE, this.getThing().getUID(), "1"), "White group 1");
-        thingDiscoveryService.addDevice(
-                new ThingUID(MilightBindingConstants.WHITE_THING_TYPE, this.getThing().getUID(), "2"), "White group 2");
-        thingDiscoveryService.addDevice(
-                new ThingUID(MilightBindingConstants.WHITE_THING_TYPE, this.getThing().getUID(), "3"), "White group 3");
-        thingDiscoveryService.addDevice(
-                new ThingUID(MilightBindingConstants.WHITE_THING_TYPE, this.getThing().getUID(), "4"), "White group 4");
 
-        thingDiscoveryService.addDevice(
-                new ThingUID(MilightBindingConstants.RGB_THING_TYPE, this.getThing().getUID(), "5"),
-                "Color Leds (old, without white)");
+        if (version < 6) {
+            thingDiscoveryService.addDevice(
+                    new ThingUID(MilightBindingConstants.WHITE_THING_TYPE, this.getThing().getUID(), "0"), "All white");
+            thingDiscoveryService.addDevice(
+                    new ThingUID(MilightBindingConstants.WHITE_THING_TYPE, this.getThing().getUID(), "1"),
+                    "White (Zone 1)");
+            thingDiscoveryService.addDevice(
+                    new ThingUID(MilightBindingConstants.WHITE_THING_TYPE, this.getThing().getUID(), "2"),
+                    "White (Zone 2)");
+            thingDiscoveryService.addDevice(
+                    new ThingUID(MilightBindingConstants.WHITE_THING_TYPE, this.getThing().getUID(), "3"),
+                    "White (Zone 3)");
+            thingDiscoveryService.addDevice(
+                    new ThingUID(MilightBindingConstants.WHITE_THING_TYPE, this.getThing().getUID(), "4"),
+                    "White (Zone 4)");
 
-        thingDiscoveryService.addDevice(
-                new ThingUID(MilightBindingConstants.RGB_THING_TYPE, this.getThing().getUID(), "6"), "Color group all");
-        thingDiscoveryService.addDevice(
-                new ThingUID(MilightBindingConstants.RGB_THING_TYPE, this.getThing().getUID(), "7"), "Color group 1");
-        thingDiscoveryService.addDevice(
-                new ThingUID(MilightBindingConstants.RGB_THING_TYPE, this.getThing().getUID(), "8"), "Color group 2");
-        thingDiscoveryService.addDevice(
-                new ThingUID(MilightBindingConstants.RGB_THING_TYPE, this.getThing().getUID(), "9"), "Color group 3");
-        thingDiscoveryService.addDevice(
-                new ThingUID(MilightBindingConstants.RGB_THING_TYPE, this.getThing().getUID(), "10"), "Color group 4");
+            thingDiscoveryService.addDevice(
+                    new ThingUID(MilightBindingConstants.RGB_THING_TYPE, this.getThing().getUID(), "0"), "All color");
+            thingDiscoveryService.addDevice(
+                    new ThingUID(MilightBindingConstants.RGB_THING_TYPE, this.getThing().getUID(), "1"),
+                    "Color (Zone 1)");
+            thingDiscoveryService.addDevice(
+                    new ThingUID(MilightBindingConstants.RGB_THING_TYPE, this.getThing().getUID(), "2"),
+                    "Color (Zone 2)");
+            thingDiscoveryService.addDevice(
+                    new ThingUID(MilightBindingConstants.RGB_THING_TYPE, this.getThing().getUID(), "3"),
+                    "Color (Zone 3)");
+            thingDiscoveryService.addDevice(
+                    new ThingUID(MilightBindingConstants.RGB_THING_TYPE, this.getThing().getUID(), "4"),
+                    "Color (Zone 4)");
+        } else {
+            session = new MilightV6SessionManager(com, bridgeid);
 
-        updateStatus(ThingStatus.ONLINE, ThingStatusDetail.NONE, bridgeid != null ? "" : "V2 compatibility mode");
+            // The iBox has an integrated bridge lamp
+            thingDiscoveryService.addDevice(
+                    new ThingUID(MilightBindingConstants.RGB_IBOX_THING_TYPE, this.getThing().getUID(), "0"),
+                    "Color (iBox)");
+
+            thingDiscoveryService.addDevice(
+                    new ThingUID(MilightBindingConstants.RGB_CW_WW_THING_TYPE, this.getThing().getUID(), "0"),
+                    "All rgbww color");
+            thingDiscoveryService.addDevice(
+                    new ThingUID(MilightBindingConstants.RGB_CW_WW_THING_TYPE, this.getThing().getUID(), "1"),
+                    "Rgbww Color (Zone 1)");
+            thingDiscoveryService.addDevice(
+                    new ThingUID(MilightBindingConstants.RGB_CW_WW_THING_TYPE, this.getThing().getUID(), "2"),
+                    "Rgbww Color (Zone 2)");
+            thingDiscoveryService.addDevice(
+                    new ThingUID(MilightBindingConstants.RGB_CW_WW_THING_TYPE, this.getThing().getUID(), "3"),
+                    "Rgbww Color (Zone 3)");
+            thingDiscoveryService.addDevice(
+                    new ThingUID(MilightBindingConstants.RGB_CW_WW_THING_TYPE, this.getThing().getUID(), "4"),
+                    "Rgbww Color (Zone 4)");
+
+            thingDiscoveryService.addDevice(
+                    new ThingUID(MilightBindingConstants.RGB_W_THING_TYPE, this.getThing().getUID(), "0"),
+                    "All rgbw color");
+            thingDiscoveryService.addDevice(
+                    new ThingUID(MilightBindingConstants.RGB_W_THING_TYPE, this.getThing().getUID(), "1"),
+                    "Rgbw Color (Zone 1)");
+            thingDiscoveryService.addDevice(
+                    new ThingUID(MilightBindingConstants.RGB_W_THING_TYPE, this.getThing().getUID(), "2"),
+                    "Rgbw Color (Zone 2)");
+            thingDiscoveryService.addDevice(
+                    new ThingUID(MilightBindingConstants.RGB_W_THING_TYPE, this.getThing().getUID(), "3"),
+                    "Rgbw Color (Zone 3)");
+            thingDiscoveryService.addDevice(
+                    new ThingUID(MilightBindingConstants.RGB_W_THING_TYPE, this.getThing().getUID(), "4"),
+                    "Rgbw Color (Zone 4)");
+        }
+
+        if (version == 2) {
+            thingDiscoveryService.addDevice(
+                    new ThingUID(MilightBindingConstants.RGB_V2_THING_TYPE, this.getThing().getUID(), "0"),
+                    "Color Led (without white channel)");
+        }
+
+        updateStatus(ThingStatus.ONLINE, ThingStatusDetail.NONE, version == 2 ? "V2 compatibility mode" : "");
     }
 
     @Override
