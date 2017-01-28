@@ -217,13 +217,26 @@ public class HttpXMLSendReceive {
             InputStream is = connection.getInputStream();
             BufferedReader rd = new BufferedReader(new InputStreamReader(is));
             String line;
-            StringBuffer response = new StringBuffer();
+            StringBuffer responseBuffer = new StringBuffer();
             while ((line = rd.readLine()) != null) {
-                response.append(line);
-                response.append('\r');
+                responseBuffer.append(line);
+                responseBuffer.append('\r');
             }
             rd.close();
-            return response.toString();
+            String response = responseBuffer.toString();
+
+            if (PROTOCOL_SNIFFER_ENABLED && debug_out_stream != null) {
+                try {
+                    debug_out_stream.write(response.replace('\n', ' ').getBytes());
+                    debug_out_stream.write('\n');
+                    debug_out_stream.write('\n');
+                    debug_out_stream.flush();
+                } catch (IOException e) {
+                    logger.error(e.getLocalizedMessage());
+                }
+            }
+
+            return response;
         } catch (Exception e) {
             throw e;
         } finally {

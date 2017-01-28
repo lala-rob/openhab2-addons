@@ -246,7 +246,7 @@ public class YamahaEmulatedHttpXMLServer implements Runnable {
                 if (!child.getTextContent().equals("GetParam")) {
                     throw new Exception("Node for Basic_Status/ only supports GetParam");
                 }
-                return "<Basic_Status><Power_Control><Power>On</Power></Power_Control><Input><Input_Sel>Net Radio</Input_Sel><Input_Sel_Item_Info><Src_Name>NET_RADIO</Src_Name></Input_Sel_Item_Info></Input><Surround><Program_Sel><Current><Sound_Program>7ch Stereo</Sound_Program></Current></Program_Sel></Surround><Volume><Mute>Off</Mute><Lvl><Val>150</Val></Lvl></Volume></Basic_Status>";
+                return "<Basic_Status><Power_Control><Power>On</Power></Power_Control><Input><Input_Sel>Net Radio</Input_Sel><Input_Sel_Item_Info><Src_Name>NET_RADIO</Src_Name></Input_Sel_Item_Info></Input><Surround><Program_Sel><Current><Sound_Program>7ch Stereo</Sound_Program></Current></Program_Sel></Surround><Volume><Mute>Off</Mute><Lvl><Val>100</Val></Lvl></Volume></Basic_Status>";
             }
             case "Input": {
                 firstChild = firstChild.getFirstChild();
