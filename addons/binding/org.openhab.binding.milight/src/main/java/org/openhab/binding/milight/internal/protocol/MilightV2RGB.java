@@ -15,22 +15,23 @@ import org.slf4j.LoggerFactory;
 public class MilightV2RGB extends AbstractBulbInterface {
     protected static final Logger logger = LoggerFactory.getLogger(MilightV2RGB.class);
     protected final int type_offset = 5;
+    protected static final int brLevels = 9;
 
     public MilightV2RGB(QueuedSend sendQueue, int zone) {
         super(sendQueue, zone);
     }
 
+    // We have no real saturation control for RGB bulbs. If the saturation is under a 50% threshold
+    // we just change to white mode instead.
     @Override
     public void setHSB(int hue, int saturation, int brightness, MilightThingState state) {
-        // We have no real saturation control for RGBW bulbs. If the saturation is under a 50% threshold
-        // we just change to white mode instead.
         if (saturation < 50) {
             whiteMode(state);
         } else {
+            setPower(true, state);
             // we have to map [0,360] to [0,0xFF], where red equals hue=0 and the milight color 0xB0 (=176)
-            Integer milightColorNo = (256 + 176 - (int) (hue / 360.0 * 255.0)) % 256;
-            byte messageBytes[] = new byte[] { 0x20, (byte) milightColorNo.intValue(), 0x55 };
-            sendQueue.queue(messageBytes, uidc(type_offset, CAT_COLOR_SET), true);
+            int milightColorNo = (256 + 176 - (int) (hue / 360.0 * 255.0)) % 256;
+            sendQueue.queue(new byte[] { 0x20, (byte) milightColorNo, 0x55 }, uidc(type_offset, CAT_COLOR_SET), true);
             state.hue = (float) (hue / 360.0 * 255.0);
 
             if (brightness != -1) {
@@ -79,11 +80,6 @@ public class MilightV2RGB extends AbstractBulbInterface {
     }
 
     @Override
-    public void previousAnimationMode(MilightThingState state) {
-
-    }
-
-    @Override
     public void setAnimationSpeed(int speed, MilightThingState state) {
 
     }
@@ -125,40 +121,24 @@ public class MilightV2RGB extends AbstractBulbInterface {
 
     @Override
     public void changeBrightness(int relative_brightness, MilightThingState state) {
-        if (relative_brightness < 0) {
-            logger.debug("milight: decrease brightness");
-            byte messageBytes[] = null;
-
-            // Decrease brightness of rgb bulbs
-            messageBytes = new byte[] { 0x24, 0x00, 0x55 };
-            int newPercent = state.brightness - 10;
-            if (newPercent < 0) {
-                newPercent = 0;
-            }
-
-            if (state.brightness != -1 && newPercent == 0) {
-                setPower(false, state);
-            } else {
-                setPower(true, state);
-                sendQueue.queue(messageBytes, QueuedSend.NO_CATEGORY, false);
-            }
-            state.brightness = newPercent;
-        } else if (relative_brightness > 1) {
-            logger.debug("milight: increase brightness");
-            byte messageBytes[] = null;
-            // increase brightness of rgb bulbs
-            messageBytes = new byte[] { 0x23, 0x00, 0x55 };
-            int currentPercent = state.brightness;
-            int newPercent = currentPercent + 10;
-            if (newPercent > 100) {
-                newPercent = 100;
-            }
-
-            setPower(true, state);
-
-            sendQueue.queue(messageBytes, QueuedSend.NO_CATEGORY, false);
-            state.brightness = newPercent;
+        int newPercent = state.brightness + relative_brightness;
+        if (newPercent < 0) {
+            newPercent = 0;
         }
+        if (newPercent > 100) {
+            newPercent = 100;
+        }
+        if (state.brightness != -1 && newPercent == 0) {
+            setPower(false, state);
+        } else {
+            setPower(true, state);
+            int steps = (int) Math.abs(Math.floor(relative_brightness * brLevels / 100.0));
+            for (int s = 0; s < steps; ++s) {
+                sendQueue.queue(new byte[] { (byte) (relative_brightness < 0 ? 0x24 : 0x23), 0x00, 0x55 },
+                        QueuedSend.NO_CATEGORY, false);
+            }
+        }
+        state.brightness = newPercent;
     }
 
     @Override
@@ -167,8 +147,17 @@ public class MilightV2RGB extends AbstractBulbInterface {
     }
 
     @Override
-    public void nextAnimationMode(MilightThingState state) {
+    public void previousAnimationMode(MilightThingState state) {
+        setPower(true, state);
+        sendQueue.queue(new byte[] { 0x28, 0x00, 0x55 }, uidc(type_offset, CAT_MODE_SET), false);
+        state.ledMode = Math.min(state.ledMode - 1, 0);
+    }
 
+    @Override
+    public void nextAnimationMode(MilightThingState state) {
+        setPower(true, state);
+        sendQueue.queue(new byte[] { 0x27, 0x00, 0x55 }, uidc(type_offset, CAT_MODE_SET), false);
+        state.ledMode = Math.max(state.ledMode + 1, 100);
     }
 
 }

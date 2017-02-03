@@ -38,60 +38,11 @@ public abstract class MilightV3 extends AbstractBulbInterface {
     }
 
     @Override
-    public void changeColorTemperature(int color_temp_relative, MilightThingState state) {
-        if (color_temp_relative > 0) {
-            logger.debug("milight: sendWarmer");
-            int newPercent = state.colorTemperature + 10;
-            if (newPercent > 100) {
-                newPercent = 100;
-            }
-            byte messageBytes[] = { 0x3E, 0x00, 0x55 };
-            setPower(true, state);
-
-            sendQueue.queue(messageBytes, uidc(type_offset, CAT_TEMPERATURE_SET), false);
-            state.colorTemperature = newPercent;
-        } else if (color_temp_relative < 0) {
-            logger.debug("milight: sendCooler");
-            int newPercent = state.colorTemperature - 10;
-
-            byte messageBytes[] = { 0x3F, 0x00, 0x55 };
-            setPower(true, state);
-
-            sendQueue.queue(messageBytes, uidc(type_offset, CAT_TEMPERATURE_SET), false);
-            state.colorTemperature = newPercent;
-        }
-    }
-
-    @Override
     public void setLedMode(int mode, MilightThingState state) {
-        // Make sure lights are on and engage current bulb via a preceding ON command:
-        setPower(true, state);
-
-        if (mode > state.ledMode) {
-            int repeatCount = (mode - state.ledMode) / 10;
-            for (int i = 0; i < repeatCount; i++) {
-                nextAnimationMode(state);
-            }
-        } else if (mode < state.ledMode) {
-            int repeatCount = (state.ledMode - mode) / 10;
-            for (int i = 0; i < repeatCount; i++) {
-                previousAnimationMode(state);
-            }
-        }
-
-        state.ledMode = mode;
+        // Not supported
     }
 
-    @Override
-    public void previousAnimationMode(MilightThingState state) {
-        logger.debug("milight: previousAnimationMode");
-        byte messageBytes[] = { 0x28, 0x00, 0x55 };
-        setPower(true, state);
-
-        sendQueue.queue(messageBytes, uidc(type_offset, CAT_MODE_SET), false);
-        state.ledMode = Math.min(state.ledMode - 10, 0);
-    }
-
+    // Emulate an absolute animation speed command. This will not be accurate.
     @Override
     public void setAnimationSpeed(int speed, MilightThingState state) {
         if (speed > state.animationSpeed) {

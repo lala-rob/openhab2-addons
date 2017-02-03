@@ -39,7 +39,7 @@ The following bulb types are valid for configuration:
  * whiteLed: The white bulbs (with cold/warm white) used with v3-v5 bridges.
  * rgbLed: The rgb+white bulbs (with cold/warm white) used with v3-v5 bridges. About 4080 colors (255 colors * 16 brightness steps).
  * rgbiboxLed: The iBox bridge integrated color bulb without a dedicated white channel.
- * rgbwLed: The 2016/2017 color bulb without saturation support. About 16320 (255*64) colors.
+ * rgbwLed: The 2016/2017 color bulb without saturation support. About 6630 (255*26) colors.
  * rgbwwLed: The 2016/2017 color bulb with saturation support. About 1.044.480 (255*64*64) different color shades.
 
 The zone number is either 0 for meaning all bulbs of the same type or
@@ -52,12 +52,14 @@ For white bulbs these channels are supported:
     ledbrightness       Controls the brightness of your bulbs
     colorTemperature    Changes from cold white to warm white and vice versa
     nightMode           Dims your bulbs to a very low level to use them as a night light
+    animation_mode_relative   Changes the animation mode. Use an IncreaseDecrease type of widget.
 
 For rgbv2Led bulbs these channels are supported:
 
     ledbrightness       Controls the brightness of your bulbs
     ledcolor            Changes the color and brightness of your rgb bulbs when bound to a colorpicker
                         or just the brightness if bound to a Dimmer or controls On/Off if bound to a switch.
+    animation_mode_relative   Changes the animation mode. Use an IncreaseDecrease type of widget.
 
 For rgbLed bulbs these channels are supported:
 
@@ -88,7 +90,7 @@ For rgbwLed/rgbwwLed bulbs these channels are supported:
 
 Limitations:
 
-* Only the rgbww bulbs support changing their saturation, for rgbv2Led/rgbw the colorpicker will only set the hue and brightness and change to whitemode if the saturation is under a given threshold.
+* Only the rgbww bulbs support changing their saturation, for rgbv2Led/rgbwLed the colorpicker will only set the hue and brightness and change to whitemode if the saturation is under a given threshold of 50%.
 
 ## Example
 

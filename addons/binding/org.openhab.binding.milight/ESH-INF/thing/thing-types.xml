@@ -87,6 +87,7 @@
         <channels>
             <channel id="ledbrightness" typeId="ledbrightness"/>
             <channel id="ledcolor" typeId="ledcolor"/>
+            <channel id="animation_mode_relative" typeId="animation_mode_relative"/>
         </channels>
     </thing-type>
     
@@ -95,7 +96,7 @@
             <bridge-type-ref id="bridge" />
         </supported-bridge-type-refs>
         <label>RGB Led</label>
-        <description>Milight RGB Led with white channel</description>
+        <description>Milight RGB Led with white channel. No saturation control. If the set saturation is below a threshold of 50%, the bulb turns into white mode.</description>
 
         <channels>
             <channel id="lednightmode" typeId="lednightmode"/>
@@ -179,6 +180,7 @@
             <channel id="lednightmode" typeId="lednightmode"/>
             <channel id="ledbrightness" typeId="ledbrightness"/>
             <channel id="ledtemperature" typeId="ledtemperature"/>
+            <channel id="animation_mode_relative" typeId="animation_mode_relative"/>
         </channels>
     </thing-type>
 
@@ -191,7 +193,7 @@
     <channel-type id="ledwhitemode">
         <kind>trigger</kind>
         <label>Whitemode</label>
-        <description>Switch to white mode, which basically sets the saturation to 0</description>
+        <description>Switch to white mode, which basically sets the saturation to 0 (turns off the color leds)</description>
     </channel-type>
 
     <channel-type id="ledlink" advanced="true">
